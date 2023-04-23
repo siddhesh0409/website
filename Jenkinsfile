@@ -1,6 +1,14 @@
 pipeline {
     agent any
 
+     environment{
+       registryCredential = 'ecr:ap-northeast-1:capstone'
+       appRegistry = "134667202732.dkr.ecr.ap-northeast-1.amazonaws.com/capstone"
+       capstoneRegistry = "https://134667202732.dkr.ecr.ap-northeast-1.amazonaws.com"
+       cluster = "capstone"
+        service = "capstone"
+   }
+
     stages {
         stage('Clone Website') {
             steps {
@@ -11,7 +19,7 @@ pipeline {
        stage("Docker Build Image"){
            steps{
              script{
-                dockerImage = docker.build("$BUILD_NUMBER",".")
+                dockerImage = docker.build(appRegistry+ ":$BUILD_NUMBER",".")
              }
            }
       }
@@ -20,27 +28,30 @@ pipeline {
             steps {
                 // Run tests on the website
                 sh 'echo "Running tests on the website"'
-                script {
-                    branchName = sh(label: 'getBranchName', returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
-                   println branchName
-                }   
-               
             }
        }
 
-        stage('Push to Production') {
-    
-               when {
-                 expression {
-                    return env.BRANCH_NAME != 'master';
+       stage("Upload App Image"){
+         steps{
+            script{
+                docker.withRegistry(capstoneRegistry, registryCredential){
+                    dockerImage.push("$BUILD_NUMBER")
+                    dockerImage.push('latest')
                 }
-             }
-            
-            steps {
-                // Deploy the website to production
-                sh 'echo "Deploying the website to production"'
             }
-        }
+         }
+      }
+
+      stage('Deploy to ecs'){
+         when {
+                branch "master"
+         }
+         steps{
+            withAWS(credentials: 'capstone', region: 'ap-northeast-1'){
+                sh 'aws ecs update-service --cluster ${cluster} --service ${service} --force-new-deployment'
+            }
+         }
+      }
 
     }
 }
